@@ -1,0 +1,845 @@
+---
+title: "Reverse Engineer the Formula for Air Quality Index in Calgary"
+author: "Group"
+date: "2024-11-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+air <- read.csv("/Users/shahzaibrahat/Downloads/Air.csv")
+
+```
+
+
+```{r}
+air$Season <- as.factor(air$Season)
+air$Station.Name <- as.factor(air$Station.Name)
+
+fullmodel <-lm(Air.Quality.Index ~ Station.Name+ Season+Carbon.Monoxide+Methane+Nitric.Oxide+Nitrogen.Dioxide+Ozone+Non.methane.Hydrocarbons+PM2.5.Mass+Total.Hydrocarbons+Total.Oxides.Of.Nitrogen,data=air)
+summary(fullmodel)
+str(air)
+
+```
+
+```{r}
+fullmodel1 <- lm(
+  Air.Quality.Index ~ Station.Name + Season + Carbon.Monoxide + 
+    Methane + Nitric.Oxide + Nitrogen.Dioxide + Ozone + 
+    Non.methane.Hydrocarbons + PM2.5.Mass + 
+    Total.Hydrocarbons + Total.Oxides.Of.Nitrogen, 
+  data = air
+)
+summary(fullmodel1)
+```
+# Finding the best variables using stepwise section procedure  :
+```{r}
+library(olsrr)
+stepmod=ols_step_both_p(fullmodel1,p_enter = 0.1, p_remove = 0.3, details=TRUE)
+```
+
+
+
+from this model i can see  all my variables are good except for one variable , that is `Season`. which is very unusual. 
+
+# First reduced model:
+```{r}
+red1 <- lm(
+  Air.Quality.Index ~ Station.Name + Carbon.Monoxide + 
+    Methane + Nitric.Oxide + Nitrogen.Dioxide + Ozone + 
+    Non.methane.Hydrocarbons + PM2.5.Mass + 
+    Total.Hydrocarbons + Total.Oxides.Of.Nitrogen, 
+  data = air
+)
+summary(red1)
+```
+
+all the varibales are significant as seen in the summary.
+
+# 2nd reduced model:
+```{r}
+library(leaps)
+best.subsetExecSal=regsubsets(Air.Quality.Index ~ Station.Name + Season + Carbon.Monoxide + 
+    Methane + Nitric.Oxide + Nitrogen.Dioxide + Ozone + 
+    Non.methane.Hydrocarbons + PM2.5.Mass + 
+    Total.Hydrocarbons + Total.Oxides.Of.Nitrogen, data= air, nv=14 ) 
+summary(best.subsetExecSal)
+```
+
+
+```{r}
+reg.summary=summary(best.subsetExecSal)
+rsquare=c(reg.summary$rsq)
+cp=c(reg.summary$cp)
+AdjustedR=c(reg.summary$adjr2)
+RSS=c(reg.summary$rss)
+BIC=c(reg.summary$bic)
+cbind(rsquare,cp,BIC,RSS,AdjustedR)
+```
+From the above matrix, we can see all models with 12 or more variables have very high adjusted R-squared. It does not matter which variables we choose above 12 because the only difference between the 12- and 14-variable models is the consideration of the Season variable as `SeasonSpring`, `SeasonSummer`, and `SeasonWinter`. So, we have to add Season as a variable in the model according to the above matrix.
+
+OK, now I have two models that work: one without season as a variable and another with season in the model.
+
+**ok now i have 2 models that works. one without season as a variable and another with seson in the model.**
+# 2nd reduced model:
+```{r}
+red2 <- lm(
+  Air.Quality.Index ~ Station.Name + Season + Carbon.Monoxide + 
+    Methane + Nitric.Oxide + Nitrogen.Dioxide + Ozone + 
+    Non.methane.Hydrocarbons + PM2.5.Mass + 
+    Total.Hydrocarbons + Total.Oxides.Of.Nitrogen, 
+  data = air
+)
+summary(red2)
+
+```
+All of the season variables (`SeasonSpring`,` SeasonSummer`,` SeasonWinter`) is greater than 0.05. so i can conclude that i can drop season. 
+
+# Final additive model :
+I am choosing the first reduced model as my final additive model, keeping all the variables except for the Season variable as proven above.
+
+```{r}
+reduced_model<-lm(Air.Quality.Index ~ Station.Name + Carbon.Monoxide + 
+    Methane + Nitric.Oxide + Nitrogen.Dioxide + Ozone + 
+    Non.methane.Hydrocarbons + PM2.5.Mass + 
+    Total.Hydrocarbons + Total.Oxides.Of.Nitrogen, 
+  data = air)
+summary(reduced_model)
+```
+
+
+
+The final regression equation for predicting `Air.Quality.Index` is:
+
+\[
+\text{Air.Quality.Index} = 0.7988 - 0.0413(\text{Station.Name: Calgary Northwest}) - 0.0658(\text{Station.Name: Calgary Southeast}) 
+\]
+\[
++ 0.5241(\text{Carbon Monoxide}) + 8.5368(\text{Methane}) - 8.2907(\text{Nitric Oxide}) + 7.5728(\text{Nitrogen Dioxide}) + 40.1497(\text{Ozone}) 
+\]
+\[
++ 8.7704(\text{Non-methane Hydrocarbons}) + 0.0358(\text{PM2.5 Mass}) - 8.4403(\text{Total Hydrocarbons}) 
++ 12.1444(\text{Total Oxides of Nitrogen})
+\]
+
+
+
+### Notes:
+1. **Station Name Encoding**:
+   - `Station.Name: Calgary Northwest` and `Station.Name: Calgary Southeast` are dummy variables for categorical encoding. The reference category is the baseline (likely another station not shown in the coefficients).
+
+2. **Significance**:
+   - Variables with *** (p < 0.001) are highly significant in the model.
+
+3. **Interpretation**:
+   - Positive coefficients indicate a positive relationship with the Air Quality Index.
+   - Negative coefficients indicate a negative relationship.
+
+---
+
+This equation represents your final reduced regression model based on the data and significant predictors.
+
+
+
+
+All the variables are significant with the p-value less than $\alpha$ = 0.05 level of significance.
+
+# Checking for multicollinearity
+
+```{r}
+library(ggplot2)
+library(lmtest)
+library(mctest)
+library(car)
+library(GGally)
+ggplot(fullmodel, aes(x=.fitted, y=.resid)) +geom_point() +geom_smooth()+geom_hline(yintercept = 0)
+imcdiag(fullmodel, method="VIF")
+```
+
+The variables Methane, Nitric.Oxide, Nitrogen.Dioxide, Non.methane.Hydrocarbons, Total.Hydrocarbons, and Total.Oxides.Of.Nitrogen show high collinearity .
+
+```{r}
+ggplot(fullmodel, aes(x=.fitted, y=sqrt(abs(.stdresid)))) +
+geom_point(colour = "purple") +
+geom_hline(yintercept = 0) +
+geom_smooth( colour = "green4")+
+ggtitle("Scale-Location plot : Standardized Residual vs Fitted values")
+
+```
+
+
+# Checking for the assumptions
+
+## The distribution of model residuals should be approximately normal.
+```{r}
+ggplot(data=fullmodel, aes(residuals(fullmodel))) +
+geom_histogram(col="green3", fill="green4", bins = 100) +
+labs(title="Histogram for residuals") +
+labs(x="residuals", y="Count")
+```
+
+## The variance of the residuals should be consistent for all observations.
+```{r}
+plot(fitted(fullmodel), residuals(fullmodel))
+abline(h = 0, lty = 2)
+```
+
+## QQ plot
+```{r}
+ggplot(fullmodel, aes(sample=fullmodel$residuals)) +stat_qq() +stat_qq_line()
+
+```
+
+## Breusch-Pagan Test
+
+$H_{0}$ :the variance of the residuals is constant ( homoscedasticity). \\
+$H_{a}$ : the variance of the residuals is not constant .
+
+
+```{r}
+bptest(fullmodel)
+```
+The variance of the residuals is not significant and we reject the null hypothesis.
+
+## Shapiro Test
+
+$H_{0}$ : We have normality \\
+$H_{a}$ : We don't have the normality .
+
+```{r}
+shapiro.test(residuals(fullmodel))
+```
+
+This suggests that the full model is not normally distributed and we reject the null hypothesis.
+
+
+## cooks distance (checking for outliers)
+```{r}
+plot(fullmodel,which=5)
+```
+ We didn't find any influentiual ouliers that deviate the model alot.
+ 
+ 
+# ANOVA MODEL
+
+Null hypothesis : none of the predictors are significant
+alterantive : atleast one of the predictor is signifiacnt
+```{r}
+model1<-lm(Air.Quality.Index ~ 1, data=air)
+print(anova(model1,fullmodel))
+```
+
+# The interaction model
+```{r}
+full_interaction_model<-lm(Air.Quality.Index ~ (Station.Name+Carbon.Monoxide+Methane+Nitric.Oxide
+                           +Nitrogen.Dioxide+Ozone
+                           +Non.methane.Hydrocarbons+PM2.5.Mass
+                           +Total.Hydrocarbons+Total.Oxides.Of.Nitrogen)^2,
+data=air)
+summary(full_interaction_model)
+```
+
+Some of the interactions terms are not significant at 0.05 level of significance, so we will drop those to get the best fit first order interaction model.
+
+```{r}
+airinter1 <- lm(Air.Quality.Index ~ factor(Station.Name)+Carbon.Monoxide+Methane+Nitric.Oxide+Nitrogen.Dioxide+Ozone+Non.methane.Hydrocarbons+PM2.5.Mass+Total.Hydrocarbons+Total.Oxides.Of.Nitrogen+factor(Station.Name)*Carbon.Monoxide+factor(Station.Name)*Nitric.Oxide+factor(Station.Name)*Nitrogen.Dioxide+factor(Station.Name)*Ozone+factor(Station.Name)*PM2.5.Mass+factor(Station.Name)*Total.Oxides.Of.Nitrogen+Carbon.Monoxide*Ozone+Methane*Ozone+Nitric.Oxide*Nitrogen.Dioxide+Nitric.Oxide*Total.Oxides.Of.Nitrogen+Nitrogen.Dioxide*Total.Oxides.Of.Nitrogen+Ozone*Non.methane.Hydrocarbons+Ozone*PM2.5.Mass+Ozone*Total.Hydrocarbons,data=air)
+summary(airinter1)
+```
+
+```{r}
+airinter2 <- lm(Air.Quality.Index ~ factor(Station.Name)+Carbon.Monoxide+Methane+Nitric.Oxide+Nitrogen.Dioxide+Ozone+Non.methane.Hydrocarbons+PM2.5.Mass+Total.Hydrocarbons+Total.Oxides.Of.Nitrogen+factor(Station.Name)*Carbon.Monoxide+factor(Station.Name)*Nitric.Oxide+factor(Station.Name)*Nitrogen.Dioxide+factor(Station.Name)*Ozone+factor(Station.Name)*PM2.5.Mass+factor(Station.Name)*Total.Oxides.Of.Nitrogen+Carbon.Monoxide*Ozone+Methane*Ozone+Nitric.Oxide*Nitrogen.Dioxide+Nitrogen.Dioxide*Total.Oxides.Of.Nitrogen+Ozone*Non.methane.Hydrocarbons+Ozone*PM2.5.Mass+Ozone*Total.Hydrocarbons,data=air)
+summary(airinter2)
+```
+
+90.78 % of the variation is explained by the interaction model.
+
+## HYPOTHESIS
+
+$H_{0}$ : \\
+$H_{a}$ :
+```{r}
+anova(airinter2,airinter1)
+```
+
+The p-vale for the F-statistic is greater than 0.05 level of significance and we can say that the reduced intraction model 'airinter2' is better than the 'airinter1' in the estimation of the air quality index.
+
+# finding the best interaction variables using stepwise section procedure  :
+we already have found the best intraction terms in the previos steps but just to reconfirm, i will also use `stepwise section procedure` agion to find the intraction terms that best fits in the interaction model. 
+ 
+```{r}
+full_interaction_model<-lm(Air.Quality.Index ~ (Station.Name+Carbon.Monoxide+Methane+Nitric.Oxide
+                           +Nitrogen.Dioxide+Ozone
+                           +Non.methane.Hydrocarbons+PM2.5.Mass
+                           +Total.Hydrocarbons+Total.Oxides.Of.Nitrogen)^2,
+data=air)
+airinter3=ols_step_both_p(full_interaction_model,p_enter = 0.1, p_remove = 0.3, details=FALSE)
+summary(airinter3$model)
+
+```
+
+# Compaering both intraction models :
+# Introduction
+
+This document compares two interaction models for a regression analysis:  
+1. The **Second Model**, created using the  function `ols_step_both_p`from the `olsrr` library.  
+2. The **First  Model**, built by manually removing interaction terms in groups based on relevance and performance.  
+
+We will evaluate and document the differences in their variables, and provide insights to determine the best interaction model.
+
+
+
+### Secound Model Variables with function `ols_step_both_p`:
+
+  "Intercept",
+  "factor(Station.Name)Calgary Northwest",
+  "factor(Station.Name)Calgary Southeast",
+  "Carbon.Monoxide",
+  "Methane",
+  "Nitric.Oxide",
+  "Nitrogen.Dioxide",
+  "Ozone",
+  "Non.methane.Hydrocarbons",
+  "PM2.5.Mass",
+  "Total.Hydrocarbons",
+  "Total.Oxides.Of.Nitrogen",
+  "factor(Station.Name)Calgary Northwest:Carbon.Monoxide",
+  "factor(Station.Name)Calgary Southeast:Carbon.Monoxide",
+  "factor(Station.Name)Calgary Northwest:Nitric.Oxide",
+  "factor(Station.Name)Calgary Southeast:Nitric.Oxide",
+  "factor(Station.Name)Calgary Northwest:Nitrogen.Dioxide",
+  "factor(Station.Name)Calgary Southeast:Nitrogen.Dioxide",
+  "factor(Station.Name)Calgary Northwest:Ozone",
+  "factor(Station.Name)Calgary Southeast:Ozone",
+  "factor(Station.Name)Calgary Northwest:PM2.5.Mass",
+  "factor(Station.Name)Calgary Southeast:PM2.5.Mass",
+  "factor(Station.Name)Calgary Northwest:Total.Oxides.Of.Nitrogen",
+  "factor(Station.Name)Calgary Southeast:Total.Oxides.Of.Nitrogen",
+  "Carbon.Monoxide:Ozone",
+  "Methane:Ozone",
+  "Nitric.Oxide:Nitrogen.Dioxide",
+  "Nitrogen.Dioxide:Total.Oxides.Of.Nitrogen",
+  "Ozone:Non.methane.Hydrocarbons",
+  "Ozone:PM2.5.Mass",
+  "Ozone:Total.Hydrocarbons"
+
+### First Model Variables :
+
+  "Intercept",
+  "Total.Oxides.Of.Nitrogen",
+  "Ozone",
+  "Nitrogen.Dioxide",
+  "Station.NameCalgary Northwest",
+  "Station.NameCalgary Southeast",
+  "Methane",
+  "Nitric.Oxide",
+  "Total.Hydrocarbons",
+  "Non.methane.Hydrocarbons",
+  "Carbon.Monoxide",
+  "PM2.5.Mass",
+  "Ozone:PM2.5.Mass",
+  "PM2.5.Mass:Total.Hydrocarbons",
+  "PM2.5.Mass:Nitric.Oxide",
+  "Ozone:Carbon.Monoxide",
+  "Nitric.Oxide:Carbon.Monoxide",
+  "Total.Oxides.Of.Nitrogen:Nitrogen.Dioxide",
+  "Nitrogen.Dioxide:Nitric.Oxide",
+  "Total.Oxides.Of.Nitrogen:Nitric.Oxide",
+  "Nitrogen.Dioxide:Station.NameCalgary Northwest",
+  "Nitrogen.Dioxide:Station.NameCalgary Southeast",
+  "PM2.5.Mass:Station.NameCalgary Northwest",
+  "PM2.5.Mass:Station.NameCalgary Southeast",
+  "Station.NameCalgary Northwest:Non.methane.Hydrocarbons",
+  "Station.NameCalgary Southeast:Non.methane.Hydrocarbons",
+  "Station.NameCalgary Northwest:Total.Hydrocarbons",
+  "Station.NameCalgary Southeast:Total.Hydrocarbons",
+  "Nitrogen.Dioxide:Methane",
+  "Ozone:Total.Hydrocarbons",
+  "Ozone:Station.NameCalgary Northwest",
+  "Ozone:Station.NameCalgary Southeast",
+  "Ozone:Nitric.Oxide",
+  "Station.NameCalgary Northwest:Methane",
+  "Station.NameCalgary Southeast:Methane",
+  "Methane:Total.Hydrocarbons",
+  "Non.methane.Hydrocarbons:Carbon.Monoxide",
+  "Nitrogen.Dioxide:Total.Hydrocarbons",
+  "Station.NameCalgary Northwest:Carbon.Monoxide",
+  "Station.NameCalgary Southeast:Carbon.Monoxide"
+  
+I will compare both of these intraction model by calculating AdjustedR,Mallows' Cp, and Akaike Information Criterion (AIC)
+
+```{r}
+library(olsrr)
+
+# Adjusted R
+adj_r2_model1 <- summary(airinter2)$adj.r.squared
+print(adj_r2_model1)
+
+# Mallows' Cp (assuming full_model is defined)
+cp_model1 <- ols_mallows_cp(airinter2, full_interaction_model)
+print(cp_model1)
+
+# AIC
+aic_model1 <- AIC(airinter2)
+print(aic_model1)
+
+# Get the airinter3 (from ols_step_both_p)
+final_model <- airinter3$model
+
+# Residual sum of squares (RSS)
+RSS <- sum(residuals(final_model)^2)
+
+# Estimated variance of the residuals (sigma^2)
+n <- length(residuals(final_model))  # Number of observations
+p <- length(coef(final_model))  # Number of parameters (including the intercept)
+
+# Estimated variance (mean squared error)
+sigma_squared <- RSS / (n - p)
+
+# Mallows' Cp
+cp_value <- (RSS / sigma_squared) - (n - 2 * p)
+print(paste("Mallows' Cp:", cp_value))
+
+# Adjusted R-squared for airinter3 model
+adj_r_squared_final <- summary(final_model)$adj.r.squared
+print(paste("Adjusted R-squared for final model:", adj_r_squared_final))
+
+# AIC for airinter3 model
+aic_value_final <- AIC(final_model)
+print(paste("AIC for final model:", aic_value_final))
+
+```
+
+
+Based on all the above results we can clearly see that model `airinter3` has high adj R-squre, lower AIC value and CP closer to k+1 (where k in number of variable terms in the model). **i can conclude that `airinter3` is the  most fit interaction model.**
+
+### Important note: There are many terms that are not significant in the model but should be consider in the model due to Hierarchy principal. 
+## Final Interaction Model Equation
+
+The equation for the final interaction model is:
+
+\[
+\hat{y} = -0.3225 + 0.7476 \times \text{Total.Oxides.Of.Nitrogen} + 78.85 \times \text{Ozone} + 25.94 \times \text{Nitrogen.Dioxide} 
+\]
+
+\[
++0.409 \times \text{Station.NameCalgary Northwest} - 0.368 \times \text{Station.NameCalgary Southeast} + 2.086 \times \text{Methane} + 9.777 \times \text{Nitric.Oxide} 
+\]
+
+\[
+- 1.408 \times \text{Total.Hydrocarbons} + 1.996 \times \text{Non.methane.Hydrocarbons} + 1.967 \times \text{Carbon.Monoxide} + 0.03108 \times \text{PM2.5.Mass} 
+\]
+
+\[
+- 0.4519 \times (\text{Ozone} \times \text{PM2.5.Mass}) + 0.0103 \times (\text{PM2.5.Mass} \times \text{Total.Hydrocarbons}) - 0.3548 \times (\text{PM2.5.Mass} \times \text{Nitric.Oxide}) 
+\]
+
+\[
+- 56.94 \times (\text{Ozone} \times \text{Carbon.Monoxide}) - 21.26 \times (\text{Nitric.Oxide} \times \text{Carbon.Monoxide}) + 555.0 \times (\text{Total.Oxides.Of.Nitrogen} \times \text{Nitrogen.Dioxide})
+\]
+
+\[
+- 911.7 \times (\text{Nitrogen.Dioxide} \times \text{Nitric.Oxide}) + 102.8 \times (\text{Total.Oxides.Of.Nitrogen} \times \text{Nitric.Oxide}) - 10.94 \times (\text{Nitrogen.Dioxide} \times \text{Station.NameCalgary Northwest})
+\]
+
+\[
+- 7.672 \times (\text{Nitrogen.Dioxide} \times \text{Station.NameCalgary Southeast}) + 0.0044 \times (\text{PM2.5.Mass} \times \text{Station.NameCalgary Northwest})
+\]
+
+\[
++ 0.00124 \times (\text{PM2.5.Mass} \times \text{Station.NameCalgary Southeast}) + 16.72 \times (\text{Station.NameCalgary Northwest} \times \text{Non.methane.Hydrocarbons}) 
+\]
+
+\[
++ 4.389 \times (\text{Station.NameCalgary Southeast} \times \text{Non.methane.Hydrocarbons}) - 15.78 \times (\text{Station.NameCalgary Northwest} \times \text{Total.Hydrocarbons}) 
+\]
+
+\[
+- 4.386 \times (\text{Station.NameCalgary Southeast} \times \text{Total.Hydrocarbons}) - 35.59 \times (\text{Nitrogen.Dioxide} \times \text{Methane}) 
+\]
+
+\[
+- 12.60 \times (\text{Ozone} \times \text{Total.Hydrocarbons}) - 2.228 \times (\text{Ozone} \times \text{Station.NameCalgary Northwest}) + 0.6508 \times (\text{Ozone} \times \text{Station.NameCalgary Southeast})
+\]
+
+\[
++ 167.6 \times (\text{Ozone} \times \text{Nitric.Oxide}) + 15.60 \times (\text{Station.NameCalgary Northwest} \times \text{Methane}) + 4.541 \times (\text{Station.NameCalgary Southeast} \times \text{Methane}) 
+\]
+
+\[
+- 0.0957 \times (\text{Methane} \times \text{Total.Hydrocarbons}) - 2.349 \times (\text{Non.methane.Hydrocarbons} \times \text{Carbon.Monoxide}) 
+\]
+
+\[
++ 25.50 \times (\text{Nitrogen.Dioxide} \times \text{Total.Hydrocarbons}) + 0.3812 \times (\text{Station.NameCalgary Northwest} \times \text{Carbon.Monoxide}) 
+\]
+
+\[
++ 0.3849 \times (\text{Station.NameCalgary Southeast} \times \text{Carbon.Monoxide})
+\]
+
+It is a long equation. 
+```{r}
+# Fit the linear regression model with interaction terms
+interaction_model <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen + Ozone + Nitrogen.Dioxide + Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(interaction_model)
+
+```
+
+# HIGHER ORDER INTERACTIONS
+
+Now that i have the interaction model i can look for only higher order terms from our interaction model. 
+```{r}
+library(GGally)
+CreditImportant = data.frame( air$Total.Oxides.Of.Nitrogen , air$Ozone , air$Nitrogen.Dioxide , air$Station.Name ,air$Methane ,   air$Nitric.Oxide , air$Total.Hydrocarbons , air$Non.methane.Hydrocarbons , air$Carbon.Monoxide , air$PM2.5.Mass)
+
+pairs(~Air.Quality.Index+ Total.Oxides.Of.Nitrogen + Ozone + Nitrogen.Dioxide + Station.Name + Methane +
+                      Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass,data=air,panel = panel.smooth)
+```
+
+By zooming in on the above ggplot , it can be observed in the first column of line graphs that `Total.Oxides.Of.Nitrogen`,` Ozone`, ` Nitrogen.Dioxide` , `Carbon.Monoxide` and `PM2.5.Mass` are all the variables that have non liner lines in thier graphs with `Air.Quality.Index`. 
+
+My strategy is deal with one vraible at a time . i will continue to increase the degree's until the highest degree term becomes insignificant.
+
+`Total.Oxides.Of.Nitrogen`
+```{r}
+model1 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide + Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model1)
+```
+
+```{r}
+library(olsrr)
+library(ggplot2)
+library(lmtest)
+library(mctest)
+library(car)
+library(GGally)
+air$Season <- as.factor(air$Season)
+air$Station.Name <- as.factor(air$Station.Name)
+
+fullmodel <-lm(Air.Quality.Index ~ Station.Name+ Season+Carbon.Monoxide+Methane+Nitric.Oxide+Nitrogen.Dioxide+Ozone+Non.methane.Hydrocarbons+PM2.5.Mass+Total.Hydrocarbons+Total.Oxides.Of.Nitrogen,data=air)
+summary(fullmodel)
+str(air)
+
+```
+
+# considering `Total.Oxides.Of.Nitrogen` higher drgress.
+```{r}
+model2 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide + Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model2)
+```
+All the terms includeing the intrction terms are significant till now.Now degree 3 , lets test that
+```{r}
+model3 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2)+I(Total.Oxides.Of.Nitrogen^3) + Ozone + Nitrogen.Dioxide + Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model3)
+```
+I have one interaction  `Ozone:Nitric.Oxide` that becomes insignificant (0.51142). Because of this reason i cannot consider `Total.Oxides.Of.Nitrogen` of degree 3 in the model. so the highest degree of `Total.Oxides.Of.Nitrogen` can be 2 without losing the model fit. 
+
+# considering ` Ozone` higher drgress.
+```{r}
+model2 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone+I(Ozone^2) + Nitrogen.Dioxide + Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model2)
+```
+
+in the ozone 2nd degree model we found interaction terms that are insignificant like `Ozone:Total.Hydrocarbons` with p-value= 0.108.
+So, we are not considering any higher order terms for ` Ozone`. 
+
+# considering` Nitrogen.Dioxide` higher drgress.
+```{r}
+model2 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide + I(Nitrogen.Dioxide^2)+ Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide + PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model2)
+```
+For 2nd degree of ` Nitrogen.Dioxide` we have one interaction term that has very large p-value.that is 
+`Total.Oxides.Of.Nitrogen:Nitric.Oxide`  with p-value 0.519131. And ` Nitrogen.Dioxide` 2nd order term itself is not has p-value greater than 0.05. 
+so no higher order terms for ` Nitrogen.Dioxide`. 
+
+# considering `Carbon.Monoxide` higher drgress.
+
+```{r}
+model2 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide +Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide +I(Carbon.Monoxide^2)+ PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model2)
+```
+everything looks good. 
+lets try , 3rd order now
+```{r}
+model3 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide +Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide +I(Carbon.Monoxide^2)+I(Carbon.Monoxide^3)+ PM2.5.Mass                          +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model3)
+```
+Because of this interaction term `Ozone:Nitric.Oxide`   having p-value =0.140539 , I cannot consider 3rd order term of  `Carbon.Monoxide` in our model . 
+Only considering 2nd order term for `Carbon.Monoxide`.
+
+# considering  `PM2.5.Mass` higher drgress.
+2nd order 
+```{r}
+model2 <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide +Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide +I(Carbon.Monoxide^2)+ PM2.5.Mass+ I(PM2.5.Mass^2)  +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(model2)
+```
+- There is one interaction term `Ozone:Nitric.Oxide` that has p-value greater than 0.05. So I cannot consider higher order terms for the `PM2.5.Mass`.
+
+# Our final model is : 
+```{r}
+final_inter_model <- lm(Air.Quality.Index ~ 
+                        Total.Oxides.Of.Nitrogen+I(Total.Oxides.Of.Nitrogen^2) + Ozone + Nitrogen.Dioxide +Station.Name + Methane +
+                        Nitric.Oxide + Total.Hydrocarbons + Non.methane.Hydrocarbons + Carbon.Monoxide +I(Carbon.Monoxide^2)+ PM2.5.Mass +
+                        Ozone * PM2.5.Mass + 
+                        PM2.5.Mass * Total.Hydrocarbons + 
+                        PM2.5.Mass * Nitric.Oxide + 
+                        Ozone * Carbon.Monoxide +
+                        Nitric.Oxide * Carbon.Monoxide + 
+                        Total.Oxides.Of.Nitrogen * Nitrogen.Dioxide + 
+                        Nitrogen.Dioxide * Nitric.Oxide +
+                        Total.Oxides.Of.Nitrogen * Nitric.Oxide + 
+                        Nitrogen.Dioxide * Station.Name + 
+                        PM2.5.Mass * Station.Name +
+                        Station.Name * Non.methane.Hydrocarbons + 
+                        Station.Name * Total.Hydrocarbons + 
+                        Nitrogen.Dioxide * Methane + 
+                        Ozone * Total.Hydrocarbons + 
+                        Ozone * Station.Name + 
+                        Ozone * Nitric.Oxide + 
+                        Station.Name * Methane + 
+                        Methane * Total.Hydrocarbons + 
+                        Non.methane.Hydrocarbons * Carbon.Monoxide + 
+                        Nitrogen.Dioxide * Total.Hydrocarbons + 
+                        Station.Name * Carbon.Monoxide,
+                        data = air)
+
+# Display the model summary
+summary(final_inter_model)
+```
